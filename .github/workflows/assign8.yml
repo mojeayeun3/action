@@ -1,0 +1,43 @@
+name: Assign Reviewer
+
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  assign-reviewer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Get working directory
+        id: get-working-directory
+        run: echo "WORKING_DIR=$(pwd)" >> $GITHUB_ENV
+
+      - name: Assign reviewer
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACTION_TOKEN }}
+        run: |
+          echo "Assigning reviewer..."
+          reviewers=("andyportfolio", "workflowAndy")
+          counts=()
+          for reviewer in "${reviewers[@]}"; do
+            count=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+              "https://api.github.com/search/issues?q=type:pr+state:open+review-requested:$reviewer" | jq '.total_count')
+            counts+=($count)
+          done
+          min_count=${counts[0]}
+          min_index=0
+          for i in "${!counts[@]}"; do
+            if [[ ${counts[$i]} -lt $min_count ]]; then
+              min_count=${counts[$i]}
+              min_index=$i
+            fi
+          done
+          selected_reviewer=${reviewers[$min_index]}
+          echo "Selected reviewer: $selected_reviewer"
+          curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/requested_reviewers" \
+            -d "{\"reviewers\":[\"$selected_reviewer\"]}"
