@@ -1,0 +1,59 @@
+name: Assign Reviewer
+
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  assign-reviewer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Assign reviewer
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          const { Octokit } = require("@octokit/rest");
+          const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+
+          const reviewers = ["workflowAndy", "andyportfolio"];
+
+          async function getReviewCounts() {
+            const counts = {};
+            for (const reviewer of reviewers) {
+              const { data: reviews } = await octokit.rest.pulls.listReviews({
+                owner: process.env.GITHUB_REPOSITORY_OWNER,
+                repo: process.env.GITHUB_REPOSITORY,
+                pull_number: process.env.GITHUB_PULL_REQUEST_NUMBER,
+              });
+              counts[reviewer] = reviews.filter(review => review.user.login === reviewer).length;
+            }
+            return counts;
+          }
+
+          async function assignReviewer() {
+            const counts = await getReviewCounts();
+            const reviewer = Object.keys(counts).reduce((a, b) => (counts[a] < counts[b] ? a : b));
+
+            await octokit.rest.pulls.requestReviewers({
+              owner: process.env.GITHUB_REPOSITORY_OWNER,
+              repo: process.env.GITHUB_REPOSITORY,
+              pull_number: process.env.GITHUB_PULL_REQUEST_NUMBER,
+              reviewers: [reviewer],
+            });
+          }
+
+          assignReviewer().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
